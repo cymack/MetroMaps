@@ -1,0 +1,450 @@
+---
+title: "Metropolitan Area Maps"
+author: "Charlotte Mack"
+date: "November 27, 2018"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+A few maps of U.S. Census Bureau core-based statistical areas (CBSAs), based partly on a protocol by Kyle E. Walker, ["Generating metropolitan subsets of Census data with R and tigris."](http://walkerke.github.io/2017/05/tigris-metros/) These maps show the counties that comprise the CBSAs. Census determines CBSAs on a county basis, with counties being included entirely or not at all. In the present delineation, dated 2015, there are 389 Metropolitan CBSAs centered on the larger cities in the country, and 945 including the smaller Micropolitan areas ([U.S. Census Bureau, "Metropolitan and Micropolitan"](https://www.census.gov/programs-surveys/metro-micro/about.html)). Delineations of CBSAs are changed periodically with counties sometimes added or removed, so care should be taken of the components of CBSAs or metropolitan (and micropolitan) areas when doing studies over time. As one might want to generate sets of CBSA maps for multicity projects, automation of the project is desirable. The maps here illustrate some of the issues to be handled.
+
+Each map has three layers, the CBSA as a whole, the set of counties, and the states; where the CBSA is contained in only one State this last layer can be omitted. The full name of the CBSA, which includes the State or States of its domicile, is extracted from the roster given by tigris::core_based_statistical_areas(). State names are stripped from this into a vector, which is then used to filter the output of the tigris::counties() command by States, to get the counties of the States in question. The subset of counties needed for the CBSA are extracted using an indexing procedure from Kyle Walker. Finally, for the cases where the CBSA extends to more than one State, a layer of the constituent States is clipped to the outline of the CBSA and, using a ggplot() aesthetic designation, colored for identification.
+
+```{r libraries, echo = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(tigris)
+library(sf)
+library(viridis)
+options(tigris_use_cache = TRUE)
+```
+
+```{r Layer data frames, include = FALSE}
+states_sf <- tigris::states(class = "sf", cb = T)
+cbsas_sf <- tigris::core_based_statistical_areas(class = "sf", cb = T)
+chi_cbsa_sf <- cbsas_sf %>% filter(grepl("Chicago", NAME))
+# Extracting the state names (or postal ids) from the cbsa, to be used in getting the counties (The following pattern will fail for, e.g., New York or Los Angeles):
+chi_st <- stringi::stri_extract_last_regex(chi_cbsa_sf$NAME, ' .*$')
+chi_st <- stringr::str_trim(chi_st)
+chi_st <- chi_st %>% stringr::str_split("-")
+chi_st <- chi_st %>% purrr::flatten_chr()
+
+# Creating the list of counties (Walker used an rbind here to join multiple States, which I have not found to be necessary):
+tristate_sf <- counties(chi_st, class = "sf", cb = T)
+
+# Indexing counties as in or out of the CBSA *as determined by layering*; from K.E. Walker:
+within <- st_within(tristate_sf, chi_cbsa_sf)
+within2 <- map_lgl(within, function(x) {
+if (length(x) == 1) {
+return(TRUE)
+} else {
+return(FALSE)
+}
+})
+tricounties_sf <- tristate_sf[within2,]
+
+# Clipping the portion of the States that will be shown to the outline of the CBSA. Note that the States will get their legend labels from the aesthetic in this layer.
+chi_states_sf <-
+states(class = "sf", cb = T) %>%
+filter(STUSPS %in% (chi_st))
+trimmed_states_sf <- st_intersection(chi_states_sf, chi_cbsa_sf)
+```
+
+```{r generating centroids for Chicago}
+tri_centroids_sf <- 
+    tricounties_sf %>% 
+    st_centroid()
+# head(tri_centroids_sf)
+# head(tri_centroids_sf %>% st_coordinates())
+tri_centroids_sf <- 
+    cbind(tri_centroids_sf, 
+          tri_centroids_sf$geometry %>% 
+              st_coordinates())
+# head(tri_centroids_sf %>% st_coordinates())
+```
+# Metropolitan Chicago map
+```{r Chicago CBSA map}
+ggplot() +
+    geom_sf(data = chi_cbsa_sf) +
+    geom_sf(data = tricounties_sf, 
+            color = "dark red") +
+    geom_sf(data = trimmed_states_sf, 
+            aes(fill = NAME), 
+            color = "dark gray", 
+            alpha = .4) +
+    theme(panel.grid = element_blank()) +
+    theme(axis.text = element_blank()) + 
+    geom_text(data = tri_centroids_sf, 
+              aes(x = X, 
+                  y = Y, 
+                  label = NAME), 
+              size = 2) + 
+    labs(title = "Chicago-Naperville-Elgin, IL-IN-WI", 
+         subtitle = "2015 delineation, OMB",
+         fill = NULL) + 
+    theme(legend.position = "bottom") +
+    scale_fill_viridis(discrete = T, alpha = .1)
+```
+
+
+
+
+# Do It Again: Metropolitan Philadelphia map
+
+```{r }
+phil_cbsa_sf <- cbsas_sf %>% filter(grepl("Philadelphia-Camden", NAME))
+# Extracting the state names (or postal ids) from the cbsa, to be used in getting the counties:
+phil_st <- stringi::stri_extract_last_regex(phil_cbsa_sf$NAME, ',.*$')
+phil_st <- phil_st %>% stringr::str_remove(", ")
+phil_st <- stringr::str_trim(phil_st)
+phil_st <- phil_st %>% stringr::str_split("-")
+phil_st <- phil_st %>% purrr::flatten_chr()
+
+# Creating the list of counties:
+philstate_sf <- counties(phil_st, class = "sf", cb = T)
+within <- st_within(philstate_sf, phil_cbsa_sf)
+within2 <- map_lgl(within, function(x) {
+if (length(x) == 1) {
+return(TRUE)
+} else {
+return(FALSE)
+}
+})
+philcounties_sf <- philstate_sf[within2,]
+phil_states_sf <-
+states(class = "sf", cb = T) %>%
+filter(STUSPS %in% (phil_st))
+trimmed_states_sf <- st_intersection(phil_states_sf, phil_cbsa_sf)
+```
+
+```{r generating centroids for Philadelphia}
+phil_centroids_sf <- 
+    philcounties_sf %>% 
+    st_centroid()
+# head(phil_centroids_sf)
+# head(phil_centroids_sf %>% st_coordinates())
+phil_centroids_sf <- 
+    cbind(phil_centroids_sf, 
+          phil_centroids_sf$geometry %>% 
+              st_coordinates())
+# head(phil_centroids_sf %>% st_coordinates())
+```
+```{r Philadelphia CBSA map}
+ggplot() +
+    geom_sf(data = phil_cbsa_sf) +
+    geom_sf(data = philcounties_sf, 
+            color = "dark red") +
+    geom_sf(data = trimmed_states_sf, 
+            aes(fill = NAME), 
+            color = "dark gray", 
+            alpha = .4) +
+    theme(panel.grid = element_blank()) +
+    theme(axis.text = element_blank()) + 
+    geom_text(data = phil_centroids_sf, 
+              aes(x = X, 
+                  y = Y, 
+                  label = NAME), 
+              size = 2) + 
+    labs(title = "Philadelphia-Camden-Wilmington, PA-NJ-DE-MD", 
+         subtitle = "2015 delineation, OMB",
+         fill = NULL) + 
+    theme(legend.position = "bottom") +
+    scale_fill_viridis(discrete = T, alpha = .1)
+```
+
+# A One-State Case: Los Angeles
+
+```{r }
+la_cbsa_sf <- cbsas_sf %>% filter(grepl("Los Angeles", NAME))
+
+la_st <- stringi::stri_extract_last_regex(la_cbsa_sf$NAME, ',.*$') %>% stringr::str_remove(", ")
+la_st <- stringr::str_trim(la_st)
+la_st <- la_st %>% stringr::str_split("-")
+la_st <- la_st %>% purrr::flatten_chr()
+
+la_counties <- tigris::counties(la_st, class = "sf", cb = T)
+```
+
+```{r }
+within <- st_within(la_counties, la_cbsa_sf)
+within2 <- map_lgl(within, function(x) {
+if (length(x) == 1) {
+return(TRUE)
+} else {
+return(FALSE)
+}
+})
+lacounties_sf <- la_counties[within2,]
+la_states_sf <-
+states(class = "sf", cb = T) %>%
+filter(STUSPS %in% (la_st))
+trimmed_states_sf <- st_intersection(la_states_sf, la_cbsa_sf)
+la_centroids_sf <-
+lacounties_sf %>%
+st_centroid()
+la_centroids_sf <-
+cbind(la_centroids_sf,
+la_centroids_sf$geometry %>%
+st_coordinates())
+```
+```{r Los Angeles CBSA map}
+ggplot() +
+geom_sf(data = la_cbsa_sf) +
+geom_sf(data = lacounties_sf,
+color = "dark red") +
+geom_sf(data = trimmed_states_sf,
+aes(fill = NAME),
+color = "dark gray",
+alpha = .4) +
+theme(panel.grid = element_blank()) +
+theme(axis.text = element_blank()) +
+geom_text(data = la_centroids_sf,
+aes(x = X,
+y = Y,
+label = NAME),
+size = 2) +
+labs(title = "Los Angeles-Long Beach-Anaheim, CA",
+subtitle = "2015 delineation, OMB",
+fill = NULL) +
+    theme(legend.position = "bottom") +
+scale_fill_viridis(discrete = T, alpha = .1)
+```
+
+# New York City CBSA Through the Years
+
+A moderate example of change in the delineation of a CBSA. The New York State counties of Dutchess and Orange were added to the CBSA around New York City between the delineations of 2011 and 2015. More dramatic examples of which I am aware occurred outside the time frame of the tigris package datasets, such as the five counties that were added to the Charlotte, NC CBSA between 2009 and 2013, doubling the number of counties in that area.
+
+```{r New York City 2011 State & outline layers}
+cbsas_2011_sf <- tigris::core_based_statistical_areas(class = "sf", year = "2011", cb = F)
+nyc_cbsa_2011_sf <- cbsas_2011_sf %>% filter(grepl("New York-", NAME))
+
+nyc_st <- stringi::stri_extract_last_regex(nyc_cbsa_2011_sf$NAME, ',.*$') %>% stringr::str_remove(", ")
+nyc_st <- stringr::str_trim(nyc_st)
+nyc_st <- nyc_st %>% stringr::str_split("-")
+nyc_st <- nyc_st %>% purrr::flatten_chr()
+
+nyc_counties_2011 <- tigris::counties(nyc_st, class = "sf", year = "2011", cb = F)
+```
+
+```{r NYC counties 2011}
+within <- st_within(nyc_counties_2011, nyc_cbsa_2011_sf)
+within2 <- map_lgl(within, function(x) {
+if (length(x) == 1) {
+return(TRUE)
+} else {
+return(FALSE)
+}
+})
+nyccounties_sf <- nyc_counties_2011[within2,]
+nyc_states__2011_sf <-
+states(class = "sf", year = "2011", cb = F) %>%
+filter(STUSPS %in% (nyc_st))
+trimmed_states_sf <- st_intersection(nyc_states__2011_sf, nyc_cbsa_2011_sf)
+nyc_centroids_sf <-
+nyccounties_sf %>%
+st_centroid()
+nyc_centroids_sf <-
+cbind(nyc_centroids_sf,
+nyc_centroids_sf$geometry %>%
+st_coordinates())
+```
+```{r New York City CBSA map 2011}
+ggplot() +
+geom_sf(data = nyc_cbsa_2011_sf) +
+geom_sf(data = nyccounties_sf,
+color = "dark red") +
+geom_sf(data = trimmed_states_sf,
+aes(fill = NAME),
+color = "dark gray",
+alpha = .4) +
+theme(panel.grid = element_blank()) +
+theme(axis.text = element_blank()) +
+geom_text(data = nyc_centroids_sf,
+aes(x = X,
+y = Y,
+label = NAME),
+size = 2) +
+labs(title = "New York-Northern New Jersey-Long Island, NY-NJ-PA",
+subtitle = "2011 delineation, OMB",
+fill = NULL) +
+    theme(legend.position = "bottom") +
+scale_fill_viridis(discrete = T, alpha = .1)
+```
+
+```{r layers for NYC 2015}
+nyc_cbsa_sf <- cbsas_sf %>% filter(grepl("New York", NAME))
+# Extracting the state names (or postal ids) from the cbsa, to be used in getting the counties:
+nyc_st <- stringi::stri_extract_last_regex(nyc_cbsa_sf$NAME, ',.*$')
+nyc_st <- nyc_st %>% stringr::str_remove(", ")
+nyc_st <- stringr::str_trim(nyc_st)
+nyc_st <- nyc_st %>% stringr::str_split("-")
+nyc_st <- nyc_st %>% purrr::flatten_chr()
+
+# Creating the list of counties:
+tristate_sf <- counties(nyc_st, class = "sf", cb = T)
+within <- st_within(tristate_sf, nyc_cbsa_sf)
+within2 <- map_lgl(within, function(x) {
+if (length(x) == 1) {
+return(TRUE)
+} else {
+return(FALSE)
+}
+})
+tricounties_sf <- tristate_sf[within2,]
+nyc_states_sf <-
+states(class = "sf", cb = T) %>%
+filter(STUSPS %in% (nyc_st))
+trimmed_states_sf <- st_intersection(nyc_states_sf, nyc_cbsa_sf)
+```
+
+```{r generating centroids for New York 2015}
+tri_centroids_sf <- 
+    tricounties_sf %>% 
+    st_centroid()
+# head(tri_centroids_sf)
+# head(tri_centroids_sf %>% st_coordinates())
+tri_centroids_sf <- 
+    cbind(tri_centroids_sf, 
+          tri_centroids_sf$geometry %>% 
+              st_coordinates())
+# head(tri_centroids_sf %>% st_coordinates())
+```
+```{r New York CBSA map 2015}
+ggplot() +
+    geom_sf(data = nyc_cbsa_sf) +
+    geom_sf(data = tricounties_sf, 
+            color = "dark red") +
+    geom_sf(data = trimmed_states_sf, 
+            aes(fill = NAME), 
+            color = "dark gray", 
+            alpha = .4) +
+    theme(panel.grid = element_blank()) +
+    theme(axis.text = element_blank()) + 
+    geom_text(data = tri_centroids_sf, 
+              aes(x = X, 
+                  y = Y, 
+                  label = NAME), 
+              size = 2) + 
+    labs(title = "New York-Newark-Jersey City, NY-NJ-PA", 
+         subtitle = "2015 delineation, OMB",
+         fill = NULL) + 
+    theme(legend.position = "bottom") +
+    scale_fill_viridis(discrete = T, alpha = .1)
+```
+
+
+
+
+
+```{r Charlotte 2013, include = F}
+cbsas_2013_sf <- tigris::core_based_statistical_areas(class = "sf", year = "2013", cb = F)
+cnc_cbsa_2013_sf <- cbsas_2013_sf %>% filter(grepl("Charlotte-", NAME))
+
+cnc_st <- stringi::stri_extract_last_regex(cnc_cbsa_2013_sf$NAME, ',.*$') %>% stringr::str_remove(", ")
+cnc_st <- stringr::str_trim(cnc_st)
+cnc_st <- cnc_st %>% stringr::str_split("-")
+cnc_st <- cnc_st %>% purrr::flatten_chr()
+
+cnc_counties_2013 <- tigris::counties(cnc_st, class = "sf", year = "2013", cb = F)
+```
+
+```{r , include = F}
+within <- st_within(cnc_counties_2013, cnc_cbsa_2013_sf)
+within2 <- map_lgl(within, function(x) {
+if (length(x) == 1) {
+return(TRUE)
+} else {
+return(FALSE)
+}
+})
+cnccounties_sf <- cnc_counties_2013[within2,]
+cnc_states__2013_sf <-
+states(class = "sf", year = "2013", cb = F) %>%
+filter(STUSPS %in% (cnc_st))
+trimmed_states_sf <- st_intersection(cnc_states__2013_sf, cnc_cbsa_2013_sf)
+cnc_centroids_sf <-
+cnccounties_sf %>%
+st_centroid()
+cnc_centroids_sf <-
+cbind(cnc_centroids_sf,
+cnc_centroids_sf$geometry %>%
+st_coordinates())
+```
+```{r Charlotte CBSA map 2013, include = F}
+ggplot() +
+geom_sf(data = cnc_cbsa_2013_sf) +
+geom_sf(data = cnccounties_sf,
+color = "dark red") +
+geom_sf(data = trimmed_states_sf,
+aes(fill = NAME),
+color = "dark gray",
+alpha = .4) +
+theme(panel.grid = element_blank()) +
+theme(axis.text = element_blank()) +
+geom_text(data = cnc_centroids_sf,
+aes(x = X,
+y = Y,
+label = NAME),
+size = 2) +
+labs(title = "Charlotte-Concord-Gastonia, NC-SC",
+subtitle = "2013 delineation, OMB") +
+scale_fill_viridis(discrete = T, alpha = .1)
+```
+```{r Charlotte 2015, include = F}
+cbsas_2015_sf <- tigris::core_based_statistical_areas(class = "sf", year = "2015", cb = F)
+cnc_cbsa_2015_sf <- cbsas_2015_sf %>% filter(grepl("Charlotte-", NAME))
+
+cnc_st <- stringi::stri_extract_last_regex(cnc_cbsa_2015_sf$NAME, ',.*$') %>% stringr::str_remove(", ")
+cnc_st <- stringr::str_trim(cnc_st)
+cnc_st <- cnc_st %>% stringr::str_split("-")
+cnc_st <- cnc_st %>% purrr::flatten_chr()
+
+cnc_counties_2015 <- tigris::counties(cnc_st, class = "sf", year = "2015", cb = F)
+```
+
+```{r , include = F}
+within <- st_within(cnc_counties_2015, cnc_cbsa_2015_sf)
+within2 <- map_lgl(within, function(x) {
+if (length(x) == 1) {
+return(TRUE)
+} else {
+return(FALSE)
+}
+})
+cnccounties_sf <- cnc_counties_2015[within2,]
+cnc_states__2015_sf <-
+states(class = "sf", year = "2015", cb = F) %>%
+filter(STUSPS %in% (cnc_st))
+trimmed_states_sf <- st_intersection(cnc_states__2015_sf, cnc_cbsa_2015_sf)
+cnc_centroids_sf <-
+cnccounties_sf %>%
+st_centroid()
+cnc_centroids_sf <-
+cbind(cnc_centroids_sf,
+cnc_centroids_sf$geometry %>%
+st_coordinates())
+```
+```{r Charlotte CBSA map 2015, include = F}
+ggplot() +
+geom_sf(data = cnc_cbsa_2015_sf) +
+geom_sf(data = cnccounties_sf,
+color = "dark red") +
+geom_sf(data = trimmed_states_sf,
+aes(fill = NAME),
+color = "dark gray",
+alpha = .4) +
+theme(panel.grid = element_blank()) +
+theme(axis.text = element_blank()) +
+geom_text(data = cnc_centroids_sf,
+aes(x = X,
+y = Y,
+label = NAME),
+size = 2) +
+labs(title = "Charlotte-Concord-Gastonia, NC-SC",
+subtitle = "2015 delineation, OMB") +
+scale_fill_viridis(discrete = T, alpha = .1)
+```
