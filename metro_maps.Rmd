@@ -2,9 +2,7 @@
 title: "Metropolitan Area Maps"
 author: "Charlotte Mack"
 date: "November 27, 2018"
-output:
-  html_document:
-    df_print: paged
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
