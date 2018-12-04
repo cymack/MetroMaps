@@ -1,0 +1,9 @@
+---
+title: "MetroMaps ReadMe"
+author: "Charlotte Mack"
+date: "`r format(Sys.Date())`"
+output: github_document
+---
+
+County-level maps of U.S. CBSA and CSA, made with the tigris package in R
+For examples see [metro_maps.md](https://github.com/cymack/MetroMaps/blob/master/metro_maps.md).
